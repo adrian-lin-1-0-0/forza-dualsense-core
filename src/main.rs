@@ -20,7 +20,7 @@ fn main() {
 
     println!("Loaded config: {:#?}", cfg);
 
-    let (config_tx, config_rx) = mpsc::channel();
+    let (_config_tx, config_rx) = mpsc::channel();
     let (state_tx, _state_rx) = watch::channel(logic::EngineState::default());
     
     let logic_loop = logic::LogicLoop::new(cfg, config_rx, state_tx).expect("Failed to initialize LogicLoop");

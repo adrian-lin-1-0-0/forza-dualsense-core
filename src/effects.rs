@@ -194,10 +194,6 @@ impl ControllerLogic {
         }
 
         if s.enable_wheelspin_buzz && t.speed >= 10.0 && accel >= s.accel_deadzone {
-            let mut wheels = vec!["fl", "fr", "rl", "rr"];
-            if t.drive_train == 0 { wheels = vec!["fl", "fr"]; }
-            else if t.drive_train == 1 { wheels = vec!["rl", "rr"]; }
-            
             let slip_fl = t.tire_slip_ratio_fl;
             let slip_fr = t.tire_slip_ratio_fr;
             let slip_rl = t.tire_slip_ratio_rl;

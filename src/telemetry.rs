@@ -119,7 +119,7 @@ impl UdpListener {
 
     /// Receives the latest packet, draining any queued stale packets.
     pub fn recv_latest(&mut self) -> Option<&ForzaTelemetry> {
-        let mut latest_size = 0;
+        let mut latest_size;
         
         // Block for the first packet or timeout
         match self.sock.recv_from(&mut self.buffer) {
