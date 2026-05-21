@@ -1,0 +1,13 @@
+[package]
+name = "forza-dualsense-core"
+version = "0.1.0"
+edition = "2024"
+default-run = "forza-dualsense-core"
+
+[dependencies]
+bytemuck = { version = "1.25.0", features = ["derive"] }
+crc32fast = "1.5.0"
+hidapi = "2.6.6"
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.52.3", features = ["sync"] }
+toml = "1.1.2"

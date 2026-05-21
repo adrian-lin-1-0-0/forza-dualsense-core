@@ -1,0 +1,10 @@
+udp_host = "127.0.0.1"
+udp_port = 5300
+udp_timeout = 0.5
+enable_brake_resistance = true
+brake_max_force = 80
+enable_abs = true
+enable_throttle_resistance = true
+throttle_max_force = 8
+enable_rev_limiter = true
+enable_startup_pulse = true
