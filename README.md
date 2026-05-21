@@ -20,6 +20,22 @@ This project is a high-performance, low-latency Rust rewrite of the core logic f
 
 ## Getting Started
 
+### Using Pre-built Binaries (Linux)
+
+You can download the pre-built Linux binary from the GitHub Actions artifacts:
+1. Go to the **Actions** tab on GitHub.
+2. Select the **Build Linux Binary** workflow on the left.
+3. Click on the latest successful run.
+4. Download the `forza-dualsense-core-linux-x86_64` artifact from the bottom of the page.
+5. Extract the zip file, make the binary executable, and run it:
+   ```bash
+   unzip forza-dualsense-core-linux-x86_64.zip
+   chmod +x forza-dualsense-core
+   ./forza-dualsense-core
+   ```
+
+### Building from Source
+
 1. Clone the repository and navigate into it:
    ```bash
    cd forza-dualsense-core
