@@ -3,6 +3,7 @@ name = "forza-dualsense-core"
 version = "0.1.0"
 edition = "2024"
 default-run = "forza-dualsense-core"
+license = "MIT"
 
 [dependencies]
 bytemuck = { version = "1.25.0", features = ["derive"] }
