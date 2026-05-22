@@ -5,6 +5,7 @@ use std::net::UdpSocket;
 const VENDOR_ID: u16 = 0x054C;
 const PRODUCT_IDS: [u16; 2] = [0x0CE6, 0x0DF2]; // DualSense, DualSense Edge
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum TriggerMode {
     Off,
     Rigid(u8),       // force

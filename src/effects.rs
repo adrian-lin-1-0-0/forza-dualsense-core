@@ -10,6 +10,22 @@ pub fn rigid(force: u8) -> TriggerMode { TriggerMode::Rigid(force) }
 
 pub fn vibration(freq: u8, amp: u8) -> TriggerMode { TriggerMode::Pulse(freq, amp) }
 
+fn force_to_feedback_strength(force: u8) -> u8 {
+    if force == 0 {
+        0
+    } else {
+        amp_to_strength(force)
+    }
+}
+
+fn vibration_to_feedback_strength(amp: u8) -> u8 {
+    if amp == 0 {
+        0
+    } else {
+        amp.saturating_add(3).saturating_div(4).clamp(1, 8)
+    }
+}
+
 pub fn vibration_wall(amp: u8, freq: u8, wall_zones: u8) -> TriggerMode {
     let a = amp.clamp(1, 8);
     let w = wall_zones.clamp(1, 9) as usize;
@@ -28,9 +44,9 @@ pub fn vibration_wall(amp: u8, freq: u8, wall_zones: u8) -> TriggerMode {
 }
 
 pub fn build_vibrating_resistance(base_force: u8, freq: u8, amp: u8, in_wall: bool, wall_zones: u8) -> TriggerMode {
-    let base_strength = amp_to_strength(base_force);
-    let buzz_strength = amp_to_strength(amp);
-    let combined_strength = base_strength.max(buzz_strength).clamp(1, 8);
+    let base_strength = force_to_feedback_strength(base_force);
+    let buzz_strength = vibration_to_feedback_strength(amp);
+    let combined_strength = base_strength.max(buzz_strength);
     
     let mut zones = [combined_strength; 10];
     if in_wall {
@@ -174,6 +190,9 @@ impl ControllerLogic {
         }
 
         if abs_active {
+            if !s.enable_brake_resistance {
+                return vibration(s.abs_freq, s.abs_amp);
+            }
             return build_vibrating_resistance(base_force, s.abs_freq, s.abs_amp, self.l2_in_wall, s.wall_zones);
         }
 
@@ -259,10 +278,16 @@ impl ControllerLogic {
         }
 
         if rev_active {
+            if !s.enable_throttle_resistance {
+                return vibration(s.rev_limit_freq, s.rev_limit_amp);
+            }
             return build_vibrating_resistance(base_force, s.rev_limit_freq, s.rev_limit_amp, self.r2_in_wall, s.wall_zones);
         }
 
         if wheelspin_active {
+            if !s.enable_throttle_resistance {
+                return vibration(wheelspin_freq, wheelspin_amp);
+            }
             return build_vibrating_resistance(base_force, wheelspin_freq, wheelspin_amp, self.r2_in_wall, s.wall_zones);
         }
 
@@ -275,5 +300,82 @@ impl ControllerLogic {
         }
 
         rigid(base_force)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::telemetry::ForzaTelemetry;
+    use bytemuck::Zeroable;
+
+    fn base_telemetry() -> ForzaTelemetry {
+        let mut telemetry = ForzaTelemetry::zeroed();
+        telemetry.is_running = 1;
+        telemetry
+    }
+
+    fn pulse_ab_zone_strength(mode: TriggerMode) -> u8 {
+        match mode {
+            TriggerMode::PulseAB(_, force, _) => ((force & 0b111) as u8) + 1,
+            other => panic!("expected PulseAB, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn abs_respects_disabled_brake_resistance() {
+        let mut logic = ControllerLogic::new();
+        let mut config = Config::default();
+        config.enable_brake_resistance = false;
+
+        let mut telemetry = base_telemetry();
+        telemetry.brake = 255;
+        telemetry.speed = 10.0;
+        telemetry.tire_slip_ratio_fl = 1.5;
+        telemetry.tire_slip_ratio_fr = 1.5;
+
+        let (left, _) = logic.update(&telemetry, &config, Instant::now());
+        assert_eq!(left, vibration(config.abs_freq, config.abs_amp));
+    }
+
+    #[test]
+    fn rev_limiter_respects_disabled_throttle_resistance() {
+        let mut logic = ControllerLogic::new();
+        let mut config = Config::default();
+        config.enable_throttle_resistance = false;
+
+        let mut telemetry = base_telemetry();
+        telemetry.accel = 255;
+        telemetry.max_rpm = 8000.0;
+        telemetry.rpm = 7500.0;
+
+        let (_, right) = logic.update(&telemetry, &config, Instant::now());
+        assert_eq!(right, vibration(config.rev_limit_freq, config.rev_limit_amp));
+    }
+
+    #[test]
+    fn wheelspin_respects_disabled_throttle_resistance() {
+        let mut logic = ControllerLogic::new();
+        let mut config = Config::default();
+        config.enable_rev_limiter = false;
+        config.enable_throttle_resistance = false;
+
+        let mut telemetry = base_telemetry();
+        telemetry.accel = 255;
+        telemetry.drive_train = 2;
+        telemetry.speed = 10.0;
+        telemetry.tire_slip_ratio_rl = 2.0;
+        telemetry.surface_rumble_rl = 0.2;
+
+        let (_, right) = logic.update(&telemetry, &config, Instant::now());
+        assert_eq!(right, vibration(60, 8));
+    }
+
+    #[test]
+    fn vibrating_resistance_preserves_wheelspin_tiers() {
+        let medium = pulse_ab_zone_strength(build_vibrating_resistance(0, 60, 8, false, 2));
+        let high = pulse_ab_zone_strength(build_vibrating_resistance(0, 20, 15, false, 2));
+
+        assert!(high > medium, "expected high rumble tier to produce stronger feedback");
     }
 }
