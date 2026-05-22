@@ -25,7 +25,7 @@ fn vibration_to_feedback_strength(amp: u8) -> u8 {
     if amp == 0 {
         0
     } else {
-        amp.saturating_add(3).saturating_div(4).clamp(1, 8)
+        amp.saturating_add(3) / 4
     }
 }
 

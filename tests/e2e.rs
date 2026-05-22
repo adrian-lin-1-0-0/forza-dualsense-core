@@ -1,7 +1,10 @@
-use std::process::Command;
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::sleep;
+
+mod common;
+
+use common::spawn_core_engine;
 
 fn find_free_udp_port() -> u16 {
     std::net::UdpSocket::bind("127.0.0.1:0")
@@ -67,11 +70,7 @@ async fn test_e2e_scenarios() {
     let usb_receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let mock_usb_port = usb_receiver.local_addr().unwrap().port();
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_forza-dualsense-core"))
-        .env("MOCK_TELEMETRY_PORT", telemetry_port.to_string())
-        .env("MOCK_USB_PORT", mock_usb_port.to_string())
-        .spawn()
-        .expect("Failed to start Rust core engine.");
+    let _child = spawn_core_engine(telemetry_port, mock_usb_port);
 
     let telemetry_sender = UdpSocket::bind("0.0.0.0:0").await.unwrap();
 
@@ -157,8 +156,4 @@ async fn test_e2e_scenarios() {
         Some(0x26),
     )
     .await;
-
-    // Clean up
-    child.kill().unwrap();
-    child.wait().unwrap();
 }
