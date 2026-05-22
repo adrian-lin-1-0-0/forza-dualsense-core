@@ -2,16 +2,13 @@ use std::time::Instant;
 use crate::telemetry::ForzaTelemetry;
 use crate::config::Config;
 use crate::controller::TriggerMode;
+use crate::utils::*;
 
 pub fn off() -> TriggerMode { TriggerMode::Off }
 
 pub fn rigid(force: u8) -> TriggerMode { TriggerMode::Rigid(force) }
 
 pub fn vibration(freq: u8, amp: u8) -> TriggerMode { TriggerMode::Pulse(freq, amp) }
-
-fn amp_to_strength(amp_byte: u8) -> u8 {
-    (amp_byte / 32 + 1).clamp(1, 8)
-}
 
 pub fn vibration_wall(amp: u8, freq: u8, wall_zones: u8) -> TriggerMode {
     let a = amp.clamp(1, 8);
@@ -26,6 +23,30 @@ pub fn vibration_wall(amp: u8, freq: u8, wall_zones: u8) -> TriggerMode {
     for (i, &s) in zones.iter().enumerate() {
         active |= 1 << i;
         strength |= ((s - 1) as u32) << (3 * i);
+    }
+    TriggerMode::PulseAB(active, strength, freq)
+}
+
+pub fn build_vibrating_resistance(base_force: u8, freq: u8, amp: u8, in_wall: bool, wall_zones: u8) -> TriggerMode {
+    let base_strength = amp_to_strength(base_force);
+    let buzz_strength = amp_to_strength(amp);
+    let combined_strength = base_strength.max(buzz_strength).clamp(1, 8);
+    
+    let mut zones = [combined_strength; 10];
+    if in_wall {
+        let w = wall_zones.clamp(1, 9) as usize;
+        for i in (10 - w)..10 {
+            zones[i] = 8;
+        }
+    }
+    
+    let mut active = 0u16;
+    let mut strength = 0u32;
+    for (i, &s) in zones.iter().enumerate() {
+        if s > 0 {
+            active |= 1 << i;
+            strength |= ((s - 1) as u32) << (3 * i);
+        }
     }
     TriggerMode::PulseAB(active, strength, freq)
 }
@@ -66,28 +87,12 @@ pub fn build_brake_walls(static_at: u8, force_byte: u8, wall_zones: u8) -> Trigg
     feedback(&zones)
 }
 
-fn ramp(value: u8, deadzone: u8, baseline: u8, max_force: u8, curve: f32, ceiling: u8) -> u8 {
-    if value < deadzone {
-        return baseline;
-    }
-    let r = (value - deadzone) as f32 / ((ceiling.saturating_sub(deadzone)).max(1)) as f32;
-    let r = r.min(1.0);
-    let res = baseline as f32 + (max_force as f32 - baseline as f32) * r.powf(curve);
-    res as u8
-}
-
-fn wall_state(value: u8, engaged: bool, engage_at: u8, release_at: u8) -> bool {
-    if engaged {
-        value >= release_at
-    } else {
-        value >= engage_at
-    }
-}
-
 pub struct ControllerLogic {
     prev_gear: u8,
     shift_until: Option<Instant>,
     rev_until: Option<Instant>,
+    abs_until: Option<Instant>,
+    wheelspin_until: Option<Instant>,
     l2_in_wall: bool,
     r2_in_wall: bool,
 }
@@ -98,6 +103,8 @@ impl ControllerLogic {
             prev_gear: 0,
             shift_until: None,
             rev_until: None,
+            abs_until: None,
+            wheelspin_until: None,
             l2_in_wall: false,
             r2_in_wall: false,
         }
@@ -139,18 +146,37 @@ impl ControllerLogic {
             }
         }
 
-        if s.enable_abs && brake >= s.abs_brake_threshold && t.speed >= s.abs_min_speed_kmh {
-            let max_slip = t.tire_slip_ratio_fl.abs().max(t.tire_slip_ratio_fr.abs())
-                            .max(t.tire_slip_ratio_rl.abs()).max(t.tire_slip_ratio_rr.abs());
-            let max_c_slip = t.tire_combined_slip_fl.abs().max(t.tire_combined_slip_fr.abs())
-                            .max(t.tire_combined_slip_rl.abs()).max(t.tire_combined_slip_rr.abs());
-            
-            if max_slip >= s.abs_slip_ratio_threshold || max_c_slip >= s.abs_combined_slip_threshold {
-                return vibration(s.abs_freq, s.abs_amp);
-            }
+        let handbrake = s.enable_handbrake_bonus && t.handbrake > 0;
+        let mut base_force = 0;
+        if s.enable_brake_resistance {
+            base_force = ramp(brake, s.brake_deadzone, s.brake_baseline_force, s.brake_max_force, s.brake_curve, s.brake_wall_engage_at);
+        }
+        if handbrake {
+            base_force = base_force.saturating_add(s.handbrake_bonus);
         }
 
         self.l2_in_wall = wall_state(brake, self.l2_in_wall, s.brake_wall_engage_at, s.brake_wall_release_at);
+
+        let mut abs_active = false;
+        if s.enable_abs && brake >= s.abs_brake_threshold && t.speed >= s.abs_min_speed_kmh {
+            let max_slip = max_driven_wheels(2, t.tire_slip_ratio_fl.abs(), t.tire_slip_ratio_fr.abs(), t.tire_slip_ratio_rl.abs(), t.tire_slip_ratio_rr.abs());
+            let max_c_slip = max_driven_wheels(2, t.tire_combined_slip_fl.abs(), t.tire_combined_slip_fr.abs(), t.tire_combined_slip_rl.abs(), t.tire_combined_slip_rr.abs());
+            
+            if max_slip >= s.abs_slip_ratio_threshold || max_c_slip >= s.abs_combined_slip_threshold {
+                self.abs_until = Some(now + std::time::Duration::from_millis(80));
+            }
+        }
+
+        if let Some(until) = self.abs_until {
+            if now < until {
+                abs_active = true;
+            }
+        }
+
+        if abs_active {
+            return build_vibrating_resistance(base_force, s.abs_freq, s.abs_amp, self.l2_in_wall, s.wall_zones);
+        }
+
         if self.l2_in_wall {
             return build_wall(s.wall_zones);
         }
@@ -159,16 +185,11 @@ impl ControllerLogic {
             return build_brake_walls(s.brake_static_wall_at, s.brake_static_wall_force, s.wall_zones);
         }
 
-        let handbrake = s.enable_handbrake_bonus && t.handbrake > 0;
         if !s.enable_brake_resistance {
             return if handbrake { rigid(s.handbrake_bonus) } else { off() };
         }
 
-        let mut force = ramp(brake, s.brake_deadzone, s.brake_baseline_force, s.brake_max_force, s.brake_curve, s.brake_wall_engage_at);
-        if handbrake {
-            force = force.saturating_add(s.handbrake_bonus);
-        }
-        rigid(force)
+        rigid(base_force)
     }
 
     fn r2(&mut self, t: &ForzaTelemetry, s: &Config, now: Instant) -> TriggerMode {
@@ -180,6 +201,13 @@ impl ControllerLogic {
             }
         }
 
+        let mut base_force = 0;
+        if s.enable_throttle_resistance {
+            base_force = ramp(accel, s.accel_deadzone, s.throttle_baseline_force, s.throttle_max_force, s.throttle_curve, s.throttle_wall_engage_at);
+        }
+
+        self.r2_in_wall = wall_state(accel, self.r2_in_wall, s.throttle_wall_engage_at, s.throttle_wall_release_at);
+
         if s.enable_rev_limiter && accel >= s.accel_deadzone {
             let max_rpm = if t.max_rpm > 0.0 { t.max_rpm } else { 1.0 };
             let rpm_r = t.rpm / max_rpm;
@@ -187,57 +215,57 @@ impl ControllerLogic {
                 self.rev_until = Some(now + std::time::Duration::from_secs_f32(s.rev_limit_hold_ms / 1000.0));
             }
         }
+
+        let mut rev_active = false;
         if let Some(until) = self.rev_until {
             if now < until {
-                return vibration(s.rev_limit_freq, s.rev_limit_amp);
+                rev_active = true;
             }
         }
+
+        let mut wheelspin_active = false;
+        let mut wheelspin_freq = 0;
+        let mut wheelspin_amp = 0;
 
         if s.enable_wheelspin_buzz && t.speed >= 10.0 && accel >= s.accel_deadzone {
-            let slip_fl = t.tire_slip_ratio_fl;
-            let slip_fr = t.tire_slip_ratio_fr;
-            let slip_rl = t.tire_slip_ratio_rl;
-            let slip_rr = t.tire_slip_ratio_rr;
-
-            let pud_fl = t.wheel_in_puddle_depth_fl;
-            let pud_fr = t.wheel_in_puddle_depth_fr;
-            let pud_rl = t.wheel_in_puddle_depth_rl;
-            let pud_rr = t.wheel_in_puddle_depth_rr;
-
-            let rum_fl = t.surface_rumble_fl.abs();
-            let rum_fr = t.surface_rumble_fr.abs();
-            let rum_rl = t.surface_rumble_rl.abs();
-            let rum_rr = t.surface_rumble_rr.abs();
-
-            let max_slip = match t.drive_train {
-                0 => slip_fl.max(slip_fr),
-                1 => slip_rl.max(slip_rr),
-                _ => slip_fl.max(slip_fr).max(slip_rl).max(slip_rr),
-            };
+            let max_slip = max_driven_wheels(t.drive_train, t.tire_slip_ratio_fl, t.tire_slip_ratio_fr, t.tire_slip_ratio_rl, t.tire_slip_ratio_rr);
 
             if max_slip >= 1.2 {
-                let max_pud = match t.drive_train {
-                    0 => pud_fl.max(pud_fr),
-                    1 => pud_rl.max(pud_rr),
-                    _ => pud_fl.max(pud_fr).max(pud_rl).max(pud_rr),
-                };
-                if max_pud > 0.0 {
-                    return vibration(100, (s.wheelspin_amp / 2).max(1));
-                }
-                
-                let max_rum = match t.drive_train {
-                    0 => rum_fl.max(rum_fr),
-                    1 => rum_rl.max(rum_rr),
-                    _ => rum_fl.max(rum_fr).max(rum_rl).max(rum_rr),
-                };
-
-                if max_rum > 0.30 { return vibration(20, 15); }
-                if max_rum > 0.10 { return vibration(60, 8); }
-                return vibration(100, s.wheelspin_amp);
+                self.wheelspin_until = Some(now + std::time::Duration::from_millis(80));
             }
         }
 
-        self.r2_in_wall = wall_state(accel, self.r2_in_wall, s.throttle_wall_engage_at, s.throttle_wall_release_at);
+        if let Some(until) = self.wheelspin_until {
+            if now < until {
+                wheelspin_active = true;
+
+                let max_pud = max_driven_wheels(t.drive_train, t.wheel_in_puddle_depth_fl, t.wheel_in_puddle_depth_fr, t.wheel_in_puddle_depth_rl, t.wheel_in_puddle_depth_rr);
+                let max_rum = max_driven_wheels(t.drive_train, t.surface_rumble_fl.abs(), t.surface_rumble_fr.abs(), t.surface_rumble_rl.abs(), t.surface_rumble_rr.abs());
+
+                if max_pud > 0.0 {
+                    wheelspin_freq = 100;
+                    wheelspin_amp = (s.wheelspin_amp / 2).max(1);
+                } else if max_rum > 0.30 { 
+                    wheelspin_freq = 20;
+                    wheelspin_amp = 15;
+                } else if max_rum > 0.10 { 
+                    wheelspin_freq = 60;
+                    wheelspin_amp = 8;
+                } else {
+                    wheelspin_freq = 100;
+                    wheelspin_amp = s.wheelspin_amp;
+                }
+            }
+        }
+
+        if rev_active {
+            return build_vibrating_resistance(base_force, s.rev_limit_freq, s.rev_limit_amp, self.r2_in_wall, s.wall_zones);
+        }
+
+        if wheelspin_active {
+            return build_vibrating_resistance(base_force, wheelspin_freq, wheelspin_amp, self.r2_in_wall, s.wall_zones);
+        }
+
         if self.r2_in_wall {
             return build_wall(s.wall_zones);
         }
@@ -246,7 +274,6 @@ impl ControllerLogic {
             return off();
         }
 
-        let force = ramp(accel, s.accel_deadzone, s.throttle_baseline_force, s.throttle_max_force, s.throttle_curve, s.throttle_wall_engage_at);
-        rigid(force)
+        rigid(base_force)
     }
 }

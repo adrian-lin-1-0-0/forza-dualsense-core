@@ -3,6 +3,7 @@ mod telemetry;
 mod controller;
 mod logic;
 mod effects;
+mod utils;
 
 use std::sync::mpsc;
 use tokio::sync::watch;
