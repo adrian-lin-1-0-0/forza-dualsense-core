@@ -3,12 +3,18 @@ use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::sleep;
 
-const TELEMETRY_PORT: u16 = 9999;
-const MOCK_USB_PORT: u16 = 9998;
+fn find_free_udp_port() -> u16 {
+    std::net::UdpSocket::bind("127.0.0.1:0")
+        .expect("Failed to bind an ephemeral UDP socket")
+        .local_addr()
+        .expect("Failed to read local UDP socket address")
+        .port()
+}
 
 async fn run_test_case(
     telemetry_sender: &UdpSocket,
     usb_receiver: &UdpSocket,
+    telemetry_port: u16,
     name: &str,
     telemetry: &[u8; 324],
     expected_l: Option<u8>,
@@ -22,7 +28,7 @@ async fn run_test_case(
 
     // Send telemetry
     telemetry_sender
-        .send_to(telemetry, format!("127.0.0.1:{}", TELEMETRY_PORT))
+        .send_to(telemetry, format!("127.0.0.1:{}", telemetry_port))
         .await
         .unwrap();
 
@@ -57,15 +63,16 @@ async fn run_test_case(
 
 #[tokio::test]
 async fn test_e2e_scenarios() {
+    let telemetry_port = find_free_udp_port();
+    let usb_receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let mock_usb_port = usb_receiver.local_addr().unwrap().port();
+
     let mut child = Command::new(env!("CARGO_BIN_EXE_forza-dualsense-core"))
-        .env("MOCK_TELEMETRY_PORT", TELEMETRY_PORT.to_string())
-        .env("MOCK_USB_PORT", MOCK_USB_PORT.to_string())
+        .env("MOCK_TELEMETRY_PORT", telemetry_port.to_string())
+        .env("MOCK_USB_PORT", mock_usb_port.to_string())
         .spawn()
         .expect("Failed to start Rust core engine.");
 
-    let usb_receiver = UdpSocket::bind(format!("127.0.0.1:{}", MOCK_USB_PORT))
-        .await
-        .unwrap();
     let telemetry_sender = UdpSocket::bind("0.0.0.0:0").await.unwrap();
 
     sleep(Duration::from_millis(1000)).await;
@@ -91,6 +98,7 @@ async fn test_e2e_scenarios() {
     run_test_case(
         &telemetry_sender,
         &usb_receiver,
+        telemetry_port,
         "1. Acceleration",
         &telemetry1,
         Some(0x01),
@@ -108,6 +116,7 @@ async fn test_e2e_scenarios() {
     run_test_case(
         &telemetry_sender,
         &usb_receiver,
+        telemetry_port,
         "2. ABS Brake",
         &telemetry2,
         Some(0x26),
@@ -123,6 +132,7 @@ async fn test_e2e_scenarios() {
     run_test_case(
         &telemetry_sender,
         &usb_receiver,
+        telemetry_port,
         "3. Engine RPM",
         &telemetry3,
         Some(0x01),
@@ -140,6 +150,7 @@ async fn test_e2e_scenarios() {
     run_test_case(
         &telemetry_sender,
         &usb_receiver,
+        telemetry_port,
         "6. Wheelspin",
         &telemetry6,
         Some(0x01),

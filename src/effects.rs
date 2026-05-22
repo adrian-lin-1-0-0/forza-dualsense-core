@@ -110,15 +110,13 @@ impl ControllerLogic {
         let mut abs_active = false;
         if s.enable_abs && brake >= s.abs_brake_threshold && (t.speed * 3.6) >= s.abs_min_speed_kmh
         {
-            let max_slip = max_driven_wheels(
-                2,
+            let max_slip = max_all_wheels(
                 t.tire_slip_ratio_fl.abs(),
                 t.tire_slip_ratio_fr.abs(),
                 t.tire_slip_ratio_rl.abs(),
                 t.tire_slip_ratio_rr.abs(),
             );
-            let max_c_slip = max_driven_wheels(
-                2,
+            let max_c_slip = max_all_wheels(
                 t.tire_combined_slip_fl.abs(),
                 t.tire_combined_slip_fr.abs(),
                 t.tire_combined_slip_rl.abs(),
@@ -370,5 +368,21 @@ mod tests {
 
         let (_, right) = logic.update(&telemetry, &config, Instant::now());
         assert_eq!(right, vibration(60, 8));
+    }
+
+    #[test]
+    fn abs_checks_all_wheels_not_just_driven_wheels() {
+        let mut logic = ControllerLogic::new();
+        let mut config = Config::default();
+        config.enable_brake_resistance = false;
+
+        let mut telemetry = base_telemetry();
+        telemetry.brake = 255;
+        telemetry.speed = 10.0;
+        telemetry.drive_train = 0;
+        telemetry.tire_slip_ratio_rl = 1.5;
+
+        let (left, _) = logic.update(&telemetry, &config, Instant::now());
+        assert_eq!(left, vibration(config.abs_freq, config.abs_amp));
     }
 }

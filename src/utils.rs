@@ -28,6 +28,10 @@ pub fn max_driven_wheels(drive_train: i32, fl: f32, fr: f32, rl: f32, rr: f32) -
     }
 }
 
+pub fn max_all_wheels(fl: f32, fr: f32, rl: f32, rr: f32) -> f32 {
+    fl.max(fr).max(rl).max(rr)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,5 +62,11 @@ mod tests {
         assert_eq!(max_driven_wheels(0, 1.0, 2.0, 3.0, 4.0), 2.0); // FWD
         assert_eq!(max_driven_wheels(1, 1.0, 2.0, 3.0, 4.0), 4.0); // RWD
         assert_eq!(max_driven_wheels(2, 1.0, 2.0, 3.0, 4.0), 4.0); // AWD
+    }
+
+    #[test]
+    fn test_max_all_wheels() {
+        assert_eq!(max_all_wheels(1.0, 2.0, 3.0, 4.0), 4.0);
+        assert_eq!(max_all_wheels(-1.0, -2.0, -0.5, -4.0), -0.5);
     }
 }
