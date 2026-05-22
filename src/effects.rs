@@ -158,7 +158,7 @@ impl ControllerLogic {
         self.l2_in_wall = wall_state(brake, self.l2_in_wall, s.brake_wall_engage_at, s.brake_wall_release_at);
 
         let mut abs_active = false;
-        if s.enable_abs && brake >= s.abs_brake_threshold && t.speed >= s.abs_min_speed_kmh {
+        if s.enable_abs && brake >= s.abs_brake_threshold && (t.speed * 3.6) >= s.abs_min_speed_kmh {
             let max_slip = max_driven_wheels(2, t.tire_slip_ratio_fl.abs(), t.tire_slip_ratio_fr.abs(), t.tire_slip_ratio_rl.abs(), t.tire_slip_ratio_rr.abs());
             let max_c_slip = max_driven_wheels(2, t.tire_combined_slip_fl.abs(), t.tire_combined_slip_fr.abs(), t.tire_combined_slip_rl.abs(), t.tire_combined_slip_rr.abs());
             
@@ -227,7 +227,7 @@ impl ControllerLogic {
         let mut wheelspin_freq = 0;
         let mut wheelspin_amp = 0;
 
-        if s.enable_wheelspin_buzz && t.speed >= 10.0 && accel >= s.accel_deadzone {
+        if s.enable_wheelspin_buzz && (t.speed * 3.6) >= 10.0 && accel >= s.accel_deadzone {
             let max_slip = max_driven_wheels(t.drive_train, t.tire_slip_ratio_fl, t.tire_slip_ratio_fr, t.tire_slip_ratio_rl, t.tire_slip_ratio_rr);
 
             if max_slip >= 1.2 {

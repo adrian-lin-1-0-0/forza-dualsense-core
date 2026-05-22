@@ -12,3 +12,6 @@ hidapi = "2.6.6"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["sync"] }
 toml = "1.1.2"
+
+[dev-dependencies]
+tokio = { version = "1.52.3", features = ["full"] }
