@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let choice = input.trim();
 
         let mut t = base_telemetry();
-        
+
         match choice {
             "1" => {
                 println!(">> Sending Full Acceleration (holding for 3s)...");
@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     socket.send_to(&t, &target)?;
                     std::thread::sleep(Duration::from_millis(30));
                 }
-                
+
                 // Shift to gear 2
                 t[319] = 2; // Gear 2
                 for _ in 0..10 {
