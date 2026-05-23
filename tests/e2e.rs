@@ -38,7 +38,13 @@ async fn run_test_case(
     let timeout_res =
         tokio::time::timeout(Duration::from_secs(1), usb_receiver.recv_from(&mut buf)).await;
     match timeout_res {
-        Ok(Ok((_len, _addr))) => {
+        Ok(Ok((len, _addr))) => {
+            assert!(
+                len >= 23,
+                "Test {}: packet too short ({} bytes), expected at least 23",
+                name,
+                len
+            );
             let l_trigger_mode = buf[22];
             let r_trigger_mode = buf[11];
 
