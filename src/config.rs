@@ -153,7 +153,7 @@ impl Config {
                 eprintln!("Warning: Failed to read config.toml, using defaults.");
             }
         }
-        
+
         let default_config = Config::default();
         if let Ok(toml_str) = toml::to_string_pretty(&default_config) {
             let _ = fs::write(path, toml_str);

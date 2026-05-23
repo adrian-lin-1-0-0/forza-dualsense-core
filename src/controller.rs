@@ -1,15 +1,16 @@
 use hidapi::{HidApi, HidDevice};
-use std::time::{Instant, Duration};
 use std::net::UdpSocket;
+use std::time::{Duration, Instant};
 
 const VENDOR_ID: u16 = 0x054C;
 const PRODUCT_IDS: [u16; 2] = [0x0CE6, 0x0DF2]; // DualSense, DualSense Edge
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum TriggerMode {
     Off,
-    Rigid(u8),       // force
-    Pulse(u8, u8),   // freq, amp
-    Feedback(u16, u32), // active_zones, strength
+    Rigid(u8),             // force
+    Pulse(u8, u8),         // freq, amp
+    Feedback(u16, u32),    // active_zones, strength
     PulseAB(u16, u32, u8), // active_zones, strength, freq
 }
 
@@ -22,8 +23,22 @@ struct Layout {
     bt: bool,
 }
 
-const USB: Layout = Layout { rid: 0x02, flags: 1, r: 11, l: 22, size: 64, bt: false };
-const BT: Layout = Layout { rid: 0x31, flags: 2, r: 12, l: 23, size: 78, bt: true };
+const USB: Layout = Layout {
+    rid: 0x02,
+    flags: 1,
+    r: 11,
+    l: 22,
+    size: 64,
+    bt: false,
+};
+const BT: Layout = Layout {
+    rid: 0x31,
+    flags: 2,
+    r: 12,
+    l: 23,
+    size: 78,
+    bt: true,
+};
 
 pub struct DualSense {
     api: Option<HidApi>,
@@ -83,20 +98,24 @@ impl DualSense {
         if let Some(api) = &mut self.api {
             let _ = api.refresh_devices();
             for dev_info in api.device_list() {
-                if dev_info.vendor_id() == VENDOR_ID && PRODUCT_IDS.contains(&dev_info.product_id()) {
+                if dev_info.vendor_id() == VENDOR_ID && PRODUCT_IDS.contains(&dev_info.product_id())
+                {
                     if dev_info.usage_page() == 1 && dev_info.usage() == 5 {
                         if let Ok(dev) = dev_info.open_device(api) {
                             let _ = dev.set_blocking_mode(false);
                             self.device = Some(dev);
-                            
+
                             let path = dev_info.path().to_string_lossy().to_uppercase();
                             if path.contains("BTHENUM") || path.contains("BLUETOOTH") {
                                 self.layout = &BT;
                             } else {
                                 self.layout = &USB;
                             }
-                            
-                            println!("DualSense connected ({})", if self.layout.bt { "BT" } else { "USB" });
+
+                            println!(
+                                "DualSense connected ({})",
+                                if self.layout.bt { "BT" } else { "USB" }
+                            );
                             return true;
                         }
                     }

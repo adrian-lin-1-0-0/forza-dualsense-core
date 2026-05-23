@@ -4,8 +4,8 @@ use tokio::sync::watch;
 
 use crate::config::Config;
 use crate::controller::DualSense;
-use crate::telemetry::UdpListener;
 use crate::effects::ControllerLogic;
+use crate::telemetry::UdpListener;
 
 #[derive(Clone, Default)]
 pub struct EngineState {
@@ -24,10 +24,14 @@ pub struct LogicLoop {
 }
 
 impl LogicLoop {
-    pub fn new(config: Config, config_rx: Receiver<Config>, state_tx: watch::Sender<EngineState>) -> Result<Self, String> {
+    pub fn new(
+        config: Config,
+        config_rx: Receiver<Config>,
+        state_tx: watch::Sender<EngineState>,
+    ) -> Result<Self, String> {
         let listener = UdpListener::new(&config.udp_host, config.udp_port, config.udp_timeout)
             .map_err(|e| format!("Failed to start UDP listener: {}", e))?;
-        
+
         let mut controller = DualSense::new()?;
         controller.try_connect();
 
@@ -53,7 +57,7 @@ impl LogicLoop {
 
             // Read telemetry
             let pkt = self.listener.recv_latest();
-            
+
             // Reconnect logic
             let was_connected = self.controller.is_connected();
             if !was_connected {
@@ -66,11 +70,12 @@ impl LogicLoop {
                 last_state.rpm = 0.0;
                 last_state.speed_kmh = 0.0;
                 let _ = self.state_tx.send_if_modified(|s| {
-                    let changed = s.is_connected != last_state.is_connected || s.rpm != last_state.rpm;
+                    let changed =
+                        s.is_connected != last_state.is_connected || s.rpm != last_state.rpm;
                     *s = last_state.clone();
                     changed
                 });
-                
+
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
             }
@@ -88,7 +93,10 @@ impl LogicLoop {
                 last_state.rpm = 0.0;
                 last_state.speed_kmh = 0.0;
 
-                (crate::effects::off(), crate::effects::off())
+                (
+                    crate::trigger_builders::off(),
+                    crate::trigger_builders::off(),
+                )
             };
 
             let _ = self.state_tx.send_if_modified(|s| {
